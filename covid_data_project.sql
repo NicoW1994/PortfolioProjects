@@ -1,16 +1,20 @@
+-- Data Exploration with SQL
+-- Nico Wagner: 23.02.2022
+-- Covid Death Cases
+-- Dataset: https://ourworldindata.org/covid-deaths
+
+-- Dataset is split into two tables: covid_deaths and covid_vaccines
 Select *
 From covid_deaths
 Where continent is not null
 order by 3,4;
 
--- is errors occur because of data types use: cast as int
+Select *
+From covid_vaccines
+Where continent is not NULL
+order by 3,4;
 
--- Select *
--- From covid_vaccines
--- Where continent is not NULL
--- order by 3,4;
-
--- Select Data that is going to be used for the project
+-- Select specific columns needed for furhter analaysis 
 Select Location, date, total_cases, new_cases, total_deaths, population
 From covid_deaths
 order by 1,2;
