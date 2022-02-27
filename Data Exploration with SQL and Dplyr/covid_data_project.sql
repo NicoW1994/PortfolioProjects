@@ -1,14 +1,21 @@
+-- Data Exploration in SQL
+-- Nico Wagner
+-- 23.02.2022
+
+-- covid deaths dataset
+-- source data: https://ourworldindata.org/covid-deaths
+
+-- data consists of 2 different tables
+-- only select data that ist country specific
 Select *
 From covid_deaths
 Where continent is not null
 order by 3,4;
 
--- if errors occur because of data types use: cast as int
-
--- Select *
--- From covid_vaccines
--- Where continent is not NULL
--- order by 3,4;
+Select *
+From covid_vaccines
+Where continent is not NULL
+order by 3,4;
 
 -- Select Data that is going to be used for the project
 Select Location, date, total_cases, new_cases, total_deaths, population
@@ -67,8 +74,6 @@ order by 1,2;
 
 -- Lookinokg at total population vs vaccinations
 -- join tables
--- USE CTE
--- numbers of columns have to match
 
 With PopvsVac (Continent, Location, Date, Population, New_Vaccinations ,Rolling_people_vaccinated)
 AS(
@@ -84,7 +89,7 @@ where deaths.continent is not null
 Select *, (Rolling_people_vaccinated/Population)*100
 From PopvsVac;
 
--- Temp table
+-- create a temp table
 
 Create Table #Percent_population_vaccinated
 (
@@ -120,4 +125,6 @@ Join covid_vaccines vacs
     and deaths.date = vacs.date
 where deaths.continent is not null;
 
-Select * From percent_population_vaccinated
+Select * From percent_population_vaccinated;
+
+-- END
