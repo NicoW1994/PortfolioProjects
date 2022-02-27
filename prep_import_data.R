@@ -5,9 +5,11 @@
 
 # source data: https://ourworldindata.org/covid-deaths
 #------------------------------------------------------------------------------
+# load necessary packages
+library(devtools)
+library(tidyverse)
 
 # access function to connect to database
-library(devtools)
 source_url("https://raw.githubusercontent.com/NicoW1994/PortfolioProjects/main/dataBase_connection.R")
 
 # call function: connect_database
