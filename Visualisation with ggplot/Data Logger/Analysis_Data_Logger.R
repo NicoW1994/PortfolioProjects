@@ -11,7 +11,7 @@ library(zoo)
 library(RCurl)
 
 # connect to GitHub dircetory for accessing data
-path <- "https://raw.githubusercontent.com/NicoW1994/PortfolioProjects/main/Visualisation%20with%20ggplot/Data%20Logger/"
+path <- "https://raw.githubusercontent.com/NicoW1994/PortfolioProjects/main/Visualisation%20with%20ggplot/Data%20Logger/Data/"
 
 ### 1. Quality control of logged data
 
