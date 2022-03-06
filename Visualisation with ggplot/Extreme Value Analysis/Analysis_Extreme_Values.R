@@ -1,4 +1,4 @@
-#----------------- Analysing Data of a Temp. and Light Data Logger  -----------
+#----------------- Analysing Data of Rivers to determine Extreme Values -------
 # Nico Wagner
 # https://github.com/NicoW1994
 # 26.04.2019
