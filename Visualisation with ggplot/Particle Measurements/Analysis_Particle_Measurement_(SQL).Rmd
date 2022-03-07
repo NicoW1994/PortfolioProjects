@@ -1,0 +1,347 @@
+---
+title: 'Using PostgreSQL in R (Rmd)'
+author: "Nico Wagner"
+date: "January 24, 2019"
+output: pdf_document
+---
+
+<style>
+body {
+text-align: justify}
+</style>
+
+```{r echo=FALSE, message = FALSE}
+if (!("RPostgreSQL" %in% installed.packages())){
+  install.packages("RPostgreSQL")
+}
+if (!("getPass" %in% installed.packages())){
+  install.packages("getPass")
+}
+require(RPostgreSQL)
+require(getPass)
+```
+
+```{r echo=FALSE, message = FALSE}
+drv <- dbDriver('PostgreSQL')
+con <- dbConnect(drv, host='v45522.1blu.de', port=5432, user=('data2018'), 
+                 password= ('psqlrocks'), dbname='datamanagement')
+
+# add png. to markdown
+#![description](path)
+
+```
+
+#### 1. Add the quality checked data to the data base
+
+Before we proceed working with SQL it is neccesary to add the quality checked temperature to the existing data base. It is important that the data can be easily linked with the existing hobo meta data and hobo raw data through a JOIN  query. Therefore a common primary key is needed:
+
+```{r echo=FALSE, message = FALSE, warning = FALSE, results='hide', eval = FALSE}
+dbListTables(con)
+#quality_checked_all <- dbReadTable(con, 'quality_checked_all')
+#raw_data <- dbReadTable(con, 'raw_data')
+#summary(raw_data)
+#quantile(raw_data$light) #1. = 0, 2. = 0, 3. = 290.6, 4. = 209424
+```
+
+```{sql connection=con, results = 'hide', message = FALSE, echo = FALSE}
+select * from quality_checked_all
+limit 5
+```
+
+Table 1 shows an excerpt of the "quality_checked_all" table which was imported to the data base. The table contains the columns dttm and hobo_id which build a compound primary key and distinguish the hobo measurements this year from the previous ones:
+
+```{sql connection=con, results = 'hide', message = FALSE, echo = TRUE, eval = FALSE}
+select * from raw_data
+         join quality_checked_all on raw_data.hobo_id=quality_checked_all.hobo_id 
+                                  and raw_data.tstamp=quality_checked_all.dttm
+```
+
+The "hobo" table does not have an attribute containing the time steps, therefore the compund primary key is not working and it is necessary to filter the results by defining the year:
+```{sql connection=con, echo=TRUE, message = FALSE, results = 'hide', eval = FALSE}
+select * from quality_checked_all
+         join hobo on quality_checked_all.hobo_id=hobo.hobo_id 
+         where year = 2019
+```
+
+#### 2. Create an overview table
+
+Table 2 shows an overview with some important attributes. The single attributes and values were connected through the UNION operator.
+```{sql connection = con}
+select * from (
+
+select 'Hobo_id' as attribute, 
+        hobo_id as value 
+      from quality_checked_all 
+      where hobo_id ='10347320' 
+union
+
+select 'n_raw_data' as attribute, 
+        count(hobo_id) as value 
+        from raw_data 
+        where hobo_id=10347320 
+union
+
+select 'n_checked_data' as attribute, 
+        count(origin) as value 
+        from quality_checked_all 
+        where hobo_id=10347320 
+union
+
+select 'hobos_within_2km (2019)' as attribute, 
+        count(distance) as value 
+        from (
+select year,
+       st_distance(st_transform(geom, 25832), 
+       (select st_transform(geom, 25832) 
+       from hobo 
+       where hobo_id=10347320)) /1000 as distance
+       from hobo 
+       where hobo_id!=10347320 and geom is not null 
+)   t1 where distance <= 2 and year = 2019
+union
+
+select 'hobos_within_2km' as attribute, 
+        count(distance2) as value 
+        from (
+select year,
+       st_distance(st_transform(geom, 25832), 
+       (select st_transform(geom, 25832) 
+       from hobo 
+       where hobo_id=10347320)) /1000 as distance2
+       from hobo 
+       where hobo_id!=10347320 and geom is not null 
+)   t2 where distance2 <= 2 and year  < 2019
+union
+
+select 'used in 2017' as attribute, 
+        count(hobo_id) as value
+        from hobo
+        where year = 2017 and hobo_id = 10347320
+union
+
+select 'used in 2018' as attribute, 
+        count(hobo_id) as value
+        from hobo
+        where year = 2018 and hobo_id = 10347320
+        
+) as overview order by value desc
+--
+--
+
+
+
+```
+
+#### 3. Create a temporary view on the "hobo"" table and compare HOBO measurements
+
+To do this task in a one SQL query, the single calculations were put together through several JOIN operators.
+```{sql connection=con, eval = FALSE}
+--create view task3_nico_wagner as
+select mean_day.hobo_id, mean_day, mean_night, distance,
+ mean_day - (select avg(th) as mean_temp_day 
+                 from quality_checked_all 
+                 where dttm > make_date(2018, 10, 01) 
+                 and date_part('hour', dttm) >= 6 
+                 and date_part('hour', dttm) < 18 
+                 and hobo_id = 10347320
+                 group by hobo_id) as day_tmp_diff,
+                 
+  mean_night - (select avg(th) as mean_temp_night 
+                 from quality_checked_all 
+                 where dttm > make_date(2018, 10, 01) 
+                 and not (date_part('hour', dttm) >= 6 
+                 and date_part('hour', dttm) < 18)
+                 and hobo_id = 10347320
+                 group by hobo_id) as nht_tmp_diff,
+  
+                 
+  st_transform(geom, 3857) as geom,
+  year,
+  radiation_influence
+
+ 
+from
+(
+select hobo_id,
+   avg(th) as mean_day 
+from quality_checked_all 
+where dttm > make_date(2018, 10, 01) 
+and date_part('hour', dttm) >= 6 
+and date_part('hour', dttm) < 18 
+group by hobo_id 
+) as mean_day
+
+ join 
+(
+select hobo_id,
+  avg(th) as mean_night 
+from quality_checked_all 
+where  dttm > make_date(2018, 10, 01) 
+and not (date_part('hour', dttm) >= 6 
+and date_part('hour', dttm) < 18)
+group by hobo_id
+) as merged on mean_day.hobo_id = merged.hobo_id
+
+ join 
+(
+select hobo_id, geom, year, radiation_influence,
+  st_distance(st_transform(geom, 25832), (select st_transform(geom, 25832) 
+from hobo where hobo_id=10347320)) /1000 as distance
+from hobo 
+where  year = 2019
+) as merged_2 on merged.hobo_id = merged_2.hobo_id 
+
+```
+
+```{sql connection=con, echo = FALSE}
+select hobo_id, mean_day, mean_night, distance, day_tmp_diff, nht_tmp_diff
+from task3_nico_wagner
+limit 6
+```
+
+Table 3 shows an excerpt of the overview table which compares my HOBO to all other HOBO's used in WS 18/19. This means the attributes distance, differnce in day temperature and difference in night temperature refer to the HOBO with the ID 10347320.
+
+\newpage
+
+![Map of HOBO locations displaying the mean temp. differences](//Users/Nico/Documents/Excercise6_task3_5.png)
+
+Figure 1 shows a map of several HOBO loggers that were used in 2018/2019. The mean temperature differences during day  are displayed through different colours and refer to the HOBO with the ID 10347320. The differences are not in absolute values to show which of the loggers measured a lower or higher temperature than my HOBO. The cross indicates the location of "My HOBO". There is no clear pattern for the temperature differences. By removing the HOBO`s with high radiation influence, the temperature range of the mean day temperature does not change significally. Omitting data points which also show high light measurements (> 15,000 lux) would probably have an bigger impact on the mean temperature differences during day, since direct sunlight increases the temperature values and not all of these HOBO's are flagged as "highly influenced".
+
+ 
+#### 4. Match HOBO's by districts and calculate zonal statistics
+
+```{sql connection = con, eval = FALSE}
+--create view task4_nico_wagner as
+select t.name,
+       t.geom,
+       t.avg,
+       t."N of HOBOs",
+       t.maximum,
+       t.minimum,
+       t."90% per.",
+       join_1.avg_dark,
+       join_2."pday",
+       join_3."pnight",
+       join_4.avg_temp_light
+       
+from (select d.name,
+             d.geom,
+             avg(rd.th)                                  as avg,
+             count(distinct h.hobo_id)                   as "N of HOBOs",
+             max(rd.th)                                  as maximum,
+             min(rd.th)                                  as minimum,
+             percentile_cont((0.9)::double precision)
+             WITHIN GROUP 
+             (ORDER BY ((rd.th)::double precision) DESC) AS "90% per."
+             
+      FROM ((hobo h
+        JOIN districts d ON (st_within(h.geom, d.geom)))
+             JOIN quality_checked_all rd
+                  ON (((rd.hobo_id = h.hobo_id) 
+                  AND (rd.dttm > '2018-06-06 00:00:00'::timestamp without time zone))))
+                  
+       GROUP BY d.name, d.geom) t
+       
+join (
+ select * from 
+ (select  d.name,
+          d.geom,
+          avg(rd.temperature)              AS avg_dark,
+          count(DISTINCT h.hobo_id)        AS "N of HOBOs"
+ FROM ((hobo h
+        JOIN districts d ON (st_within(h.geom, d.geom)))
+             JOIN raw_data rd
+                  ON (((rd.hobo_id = h.hobo_id) 
+                  AND (rd.tstamp > '2018-06-06 00:00:00'::timestamp without time zone))))
+WHERE rd.light = 0
+ GROUP BY d.name, d.geom) t1
+) as join_1 on t.name = join_1.name
+
+join(
+ select * from 
+ (select  d.name,
+          d.geom,
+          percentile_cont((0.9)::double precision)
+          WITHIN GROUP 
+          (ORDER BY ((rd.th)::double precision) DESC) AS pday,
+          count(DISTINCT h.hobo_id)                            AS "N of HOBOs"
+ FROM ((hobo h
+        JOIN districts d ON (st_within(h.geom, d.geom)))
+             JOIN quality_checked_all rd
+                  ON (((rd.hobo_id = h.hobo_id) 
+                  AND (rd.dttm > '2018-06-06 00:00:00'::timestamp without time zone))))
+                  
+ where dttm > make_date(2018, 10, 01) 
+  and date_part('hour', dttm) >= 6 
+  and date_part('hour', dttm) < 18
+   GROUP BY d.name, d.geom) t2
+)   as join_2 on join_1.name = join_2.name
+
+join (
+select * from 
+(select       d.name,
+              d.geom,
+              percentile_cont((0.9)::double precision)
+              WITHIN GROUP (ORDER BY ((rd.th)::double precision) DESC) AS pnight,
+              count(DISTINCT h.hobo_id)     AS "N of HOBOs"
+ FROM ((hobo h
+        JOIN districts d ON (st_within(h.geom, d.geom)))
+             JOIN quality_checked_all rd
+                  ON (((rd.hobo_id = h.hobo_id) 
+                  AND (rd.dttm > '2018-06-06 00:00:00'::timestamp without time zone))))
+where  dttm > make_date(2018, 10, 01) 
+ and not (date_part('hour', dttm) >= 6 
+ and date_part('hour', dttm) < 18)
+  GROUP BY d.name, d.geom) t3
+)  as join_3 on join_2.name = join_3.name
+
+join (
+select * from (select  d.name,
+              d.geom,
+              avg(rdd.temperature) as avg_temp_light,
+              count(DISTINCT h.hobo_id)     AS "N of HOBOs"
+ FROM ((hobo h
+        JOIN districts d ON (st_within(h.geom, d.geom)))
+             JOIN raw_data rdd
+                  ON (((rdd.hobo_id = h.hobo_id)
+                  AND (rdd.tstamp > '2018-06-06 00:00:00'::timestamp without time zone))))
+ WHERE rdd.light < 290.6
+  GROUP BY d.name, d.geom) t4
+)  as join_4 on join_3.name = join_4.name
+
+WHERE (t."N of HOBOs" >= 3)
+```
+In the query above all disctricts were omitted that locate less than 3 HOBO's. Therefore the number of districts was reduced from a total of 14 to 4. If we filter for districts that locate at least 1 HOBO no district will be removed. Table 4 shows the results of the zonal statistics.
+
+```{sql connection = con, echo = FALSE}
+select        name,
+              avg as "meanT", 
+              "N of HOBOs" as "n(HOBO)",
+               maximum as "maxT",
+               minimum as "minT",
+               avg_dark as "avgT_dark",
+               pday as "p_90_day",
+                pnight as "p_90_night",
+                 "avg_temp_light" as "avgT_2&3Q" 
+                from task4_nico_wagner
+````
+
+
+
+Figure 2 shows a map of the remaining 4 district which locate 3 or more HOBO's and displays the calculated mean average temperature for each zone. In addition to that the minimum measured temperature by a single HOBO for each district is displayed by different line types. As excpected the highest temperature values were measured in the inner zones of the city (Stühlinger) while the outer districts show a lower mean temperature. The biggest temperature differences exist between Stühlinger and Weingarten and Stühlinger and Brühl although they are adjacent districts. The HOBO which measured the lowest temperature was also located in the Weingarten district, which fits to the average temperature values. Generally you can say that the displayed values are not really representative for the districts. The HOBO's only cover a small part of the districts, which means that measurements of few HOBO's within 1 $km^2$ are used to calculate values for a much larger area. In addition to that the filtering by districts excluded many HOBO's that were really close to other loggers but were not located in a certain district. Therefore it would be way more effective to group the HOBOs by a range of $1km^2$ or $2km^2$ to get a representative map of the temperature distribution for certain areas in Freiburg. 
+\newline
+
+```{r echo = FALSE, warning = FALSE}
+knitr::include_graphics("/Users/Nico/Documents/Ex_6_4_4.png")
+```
+
+**Figure 2**: Map of the HOBO measurements by districts
+
+```{sql echo = FALSE, connection = con, eval = FALSE}
+--drop view task4_nico_wagner
+```
+
+
+```{r echo = FALSE, eval = FALSE}
+dbDisconnect(con)
+```
